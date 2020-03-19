@@ -1,0 +1,461 @@
+---
+title: 'Practicum 15: Spatial Data and Mapping'
+author: 'Data Science for Biomedical Informatics (BMIN503/EPID600)'
+output: 
+  html_document:
+    toc: true
+    toc_float: 
+        collapsed: false
+        smooth_scroll: true
+    depth: 4 
+    theme: paper 
+    highlight: tango
+---
+
+```{r global options, include=FALSE}
+library(ggmap)
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+```   
+***
+New packages to install for this practicum:
+```{r, eval=FALSE}
+install.packages("sp")
+install.packages("rgdal")
+install.packages("sf")
+install.packages("tidycensus")
+install.packages("ggsn")
+install.packages("mapview")
+install.packages("leaflet")
+```
+Today, we'll be querying Census data using _tidycensus_, which will require that you get a Census API key. You can get one as follows:
+
+1. Go to https://www.census.gov/developers/
+
+2. Click on the "Request a KEY" box on the left side of the page.
+
+3. Fill out the pop-up window form.
+
+4. You will receive an email with your key code in the message.
+
+Once you have received your API key, it can be set using the `census_api_key` command. Note this only needs to be done once, as we will show below.
+
+***
+
+## Spatial data overview
+
+First, let's understand how spatial data is handled in R. Historically speaking, `sp` classes and methods have been the backbone of spatial tools in R, but the `sf` framework is rapidly being adopted due to its user-friendliness and compatibility with the tidyverse suite of packages (including _dplyr_ and _ggplot2_).
+
+Let's examine how R handles different types of GIS data, beginning with vector data (i.e. points, lines and polygons) and ending with a brief raster example. We will initially compare the `sp` and `sf` frameworks in our line data example, but the majority of the practicum will take place within the `sf` framework.
+
+### Line data 
+
+We will begin with the [Philadelphia Bike Network](https://www.opendataphilly.org/dataset/bike-network) as an example of line data. This dataset includes all streets in Philadelphia with bicycle access. We will initially handle this data as an `sp` object, followed by `sf`, in order to compare these two frameworks.
+
+First let's download the data in shapefile format. 
+
+```{r eval=TRUE, message=FALSE}
+
+# Download the Philadelphia Bike Network shapefile from OpenDataPhilly
+dir.create("bike_network")  # create directory (folder) to store our shapefile
+setwd("bike_network")       # navigate to the bike_network directory
+download.file("http://data.phl.opendata.arcgis.com/datasets/b5f660b9f0f44ced915995b6d49f6385_0.zip", "bike_network.zip")  # download zipped shapefile from OpenDataPhilly
+unzip("bike_network.zip")  # unzip the file
+if (file.exists("bike_network.zip")) file.remove("bike_network.zip")
+setwd("..")                # navigate back to parent folder (good practice so you can easily find output later)
+
+```
+
+Next, let's read the shapefile into R as an `sp` object so that we can get a better understanding of the `sp` framework. 
+```{r}
+library(sp)
+library(rgdal)
+
+bn.sp <- readOGR(dsn="bike_network", layer="Bike_Network")  # read shapefile as an sp object
+class(bn.sp)             # bn.sp is a SpatialLinesDataFrame
+plot(bn.sp)              # sp objects can be mapped directly using the base plot command
+str(bn.sp, max.level=2)  # max.level makes read-out more manageable
+head(bn.sp@data)         # data attributes stored in the data slot in data.frame form
+str(bn.sp@lines, max.level = 2,  # geometry attributes stored in lines slot
+    list.len = 10)       # list.len sets number of list elements to display
+bn.sp@lines[[1]]         # double brackets access the first line of the lines slot
+bn.sp@lines[[2]]         # geometry attributes of the second line
+bn.sp@data[1:2,]         # these lines correspond to segments of Spring Garden Street
+bn.sp@bbox               # boundaries stored in bbox slot (bbox = bounding box)
+
+
+```
+
+Now, let's compare the above to how spatial data is handled in the `sf` framework. The advantage of working within the `sf` framework is that `sf` objects are a type of `data.frame` and can thus be easily manipulated with standard subsetting and data wrangling commands.
+
+```{r}
+library(sf)
+
+bn.sf <- st_read("bike_network/Bike_Network.shp")  # read shapefile as an sf object
+class(bn.sf)  # bn.sf is an sf object, which is a subclass of data.frame
+
+# sf objects can be handled like data frames using familiar commands
+str(bn.sf)
+head(bn.sf)  
+dim(bn.sf)
+bn.sf[1,]  
+head(bn.sf$STREETNAME)  
+head(bn.sf[,3])
+
+# Spatial attributes of sf objects can be accessed with the st_geometry command
+bn.geo <- st_geometry(bn.sf)
+plot(bn.geo)
+bn.geo[[1]]  # line segment 1 
+bn.geo[[2]]  # line segment 2
+bn.sf[1:2,]
+
+```
+
+Due to it's compatibility with the tidyverse and the opinion of many experts that `sf` will ultimately supersede `sp`, we will only work within the `sf` framework for the remainder of this practicum.
+
+### Polygon data
+We will look at Philadelphia census tracts as an example of polygon data. Census shapefiles are free to download on the [Census website](https://www.census.gov/geo/maps-data/data/tiger-line.html), but we will load a version that has already been converted to an sf object. 
+
+```{r}
+
+# Load philly tracts data
+philly.tracts <- readRDS(gzcon(url("https://raw.githubusercontent.com/HimesGroup/BMIN503/master/DataFiles/philadelphia_tracts_2010.rds")))
+
+# Note philly.tracts is an sf ("simple feature") object of type "MULTIPOLYGON"
+philly.tracts  
+class(philly.tracts)  
+
+# Once again, we can extract the geometry of philly.tracts with the st_geometry function
+pt.geo <- st_geometry(philly.tracts)
+pt.geo
+pt.geo[[1]]        # perimeter coordinates for the first census tract of the sf
+philly.tracts[1,]  # i.e. Census Tract 94
+
+pt.geo[[2]]        # perimeter coordinates for the second census tract of the sf
+philly.tracts[2,]  # i.e. Census Tract 95
+
+# Plot the geometry of philly.tracts with the base plot function
+plot(pt.geo)
+
+# The base plot function has some aesthetic options we can use to tweak our plots
+plot(pt.geo, col = "lemonchiffon2")
+plot(pt.geo, lwd = 2, border = "red")
+
+```
+
+
+### Point data
+As an example of point data, we will work with crime incidents that occurred in Philadelphia in September 2018. The full publicly available crime incidents database for Philadelphia is maintained by the Philadelphia Police Department and is available on the [OpenDataPhilly](https://www.opendataphilly.org/dataset/crime-incidents) website.
+
+```{r}
+library(tidyverse)
+
+crime <- readRDS(gzcon(url("https://raw.githubusercontent.com/HimesGroup/BMIN503/master/DataFiles/crime_incidents.rds")))
+
+# The crime data is an sf object of type POINT and includes information on the date, time and offense type for each incident
+crime
+str(crime)  
+
+# Factor or character variables in a standard date format can be converted to class "Date" with as.Date
+summary(crime$dispatch_date)
+crime$dispatch_date <- as.Date(crime$dispatch_date)  
+summary(crime$dispatch_date)
+
+# There are certain perks that come with the "Date" class
+crime$day_of_week <- weekdays(crime$dispatch_date)
+head(crime)
+hist(crime$dispatch_date, breaks = "days")
+
+# Let's take a look at offense types and use dplyr to filter by offense_type...
+table(crime$offense_type)
+homicide <- filter(crime, offense_type == "Homicide - Criminal")
+fraud <- filter(crime, offense_type == "Fraud")
+
+# Note subsets of an sf object are also sf objects
+class(homicide)
+class(fraud)
+
+# Plotting homicide and fraud incidents with the base plot function
+plot(st_geometry(homicide))
+
+# Points by themselves are not very easy to understand. Let's layer them on top of the tract polygons with add = TRUE
+plot(pt.geo)
+plot(st_geometry(fraud), col = "blue", alpha = 0.1, add = TRUE)
+plot(st_geometry(homicide), col = "red", add = TRUE)
+legend("bottomright", legend = c("Fraud", "Homicide"), title = "Offense type:", col = c("blue", "red"), pch = 1, bty = "n")
+
+
+```
+
+
+### Raster data
+So far, we have considered point, line, and polygon data, all of which fall under the umbrella of vector data types. Rasters are a distinct GIS data type that we will consider only briefly because they cannot be handled with `sf` methods. We will look at the `volcano` dataset, which gives topographic information for Maunga Whau (a volcano located in Auckland, New Zealand) on a 10m by 10m grid. Because it is a relatively small raster, we can handle `volcano` using base functions. Larger rasters should be handled using the _raster_ package.
+
+```{r}
+
+library(datasets)
+
+# The volcano dataset is a 87x61 matrix
+class(volcano)
+str(volcano)
+filled.contour(volcano, color = terrain.colors, asp = 1)
+```
+
+
+
+## Census data (_tidycensus_)
+
+Data from the Decennial Census and the American Community Survey (ACS) can be queried directly from R with the _tidycensus_ package. _tidycensus_ interfaces with Census APIs and returns Census data in tidyverse-ready data frames. You should have a Census API key, having followed the instructions at the top of this practicum.
+
+```{r}
+library(tidyverse)
+library(tidycensus)
+
+census_api_key("ee0e6e63a6ec3ae184a66061270249f71f84cf35", install=TRUE)
+
+```
+
+### Searching for Census variables
+
+Getting select variables from the Census or ACS requires knowing the associated variable IDs among the thousands available across the different Census files. To rapily search for variables, use the `load_variables` function. Then use CTRL/COMMAND-F to search for variables by name. 
+
+```{r}
+
+vars <- load_variables(dataset = "acs5",  # specify ACS 5-year estimates 
+                       year = 2016)  # specify end year (i.e. this queries ACS 5-year estimates for 2011-2016)
+
+
+View(vars)
+```
+
+### Accessing Census data
+
+The `get_decennial` function grants access to the 1990, 2000, and 2010 decennial US Census APIs and the `get_acs` function grants access to the 5-year ACS 
+
+```{r}
+
+poverty <- get_acs(geography = "tract",         # query data at the tract level 
+                   year = 2016,                 # end year (these will give us ACS 5-year estimates for 2011-2016)
+                   variables = c("B17010_002",  # number of families falling below the poverty threshold
+                                 "B17010_001"), # total number of families for which poverty was determined
+                   state = "PA", county = "Philadelphia")
+
+head(poverty)
+
+percent.poverty <- poverty %>%
+  group_by(GEOID) %>%  # return only one row per GEOID
+  mutate(pov_fam = estimate[variable == "B17010_002"],  # extract and rename number of families in poverty 
+         tot_fam = estimate[variable == "B17010_001"],  # extract and rename total number of families
+         percent_poverty = (pov_fam/tot_fam)*100) %>%   # multiply by 100 to get rate as a percentage
+  select(GEOID, NAME, pov_fam, tot_fam, percent_poverty) 
+
+head(percent.poverty)
+```
+
+We have tract-level poverty rates for Philadelphia, which is great! However, this data is hard to comprehend in tabular format. Next, let's visualize these poverty rates on a map. To do this, we'll have to merge our table of poverty rates with our census tract data.
+
+### Joining data to sf objects
+
+Because `sf` objects are a type of `data.frame`, they can be readily merged with tabular data (e.g. from ACS)- so long as the latter contains an index variable on which to perform the merge. Let's merge our poverty rates data frame with our census tract sf object using a _dplyr_ join function.
+
+```{r}
+
+# Before performing our join, we need to determine which variable to join on. 
+head(philly.tracts$GEOID10)
+head(percent.poverty$GEOID)
+
+# Both philly.tracts and percent.poverty have a Census GEOID variable with matching foramt, but they have slightly different names. Thus, we'll need to rename one of them so they match.
+philly.tracts <- mutate(philly.tracts, GEOID = as.character(GEOID10))
+  
+# Now we can perform our join
+philly.tracts2 <- inner_join(philly.tracts, percent.poverty, by = "GEOID")
+head(philly.tracts2)  # success!
+
+```
+
+In the next section, we wil use _ggplot2_ to visualize tract-level poverty rates in Philadelphia and see if these might be related to homicide locations.
+
+## Static maps
+
+### Mapping with _ggplot2_
+
+`sf` objecs can be easily plotted with _ggplot2_.
+```{r}
+
+# Note we can plot sf objects directly (no need to convert to sfc using st_geometry)
+ggplot() +
+  geom_sf(data = philly.tracts)
+
+# We can layer sf objects together
+ggplot() +
+  geom_sf(data = philly.tracts) +
+  geom_sf(data = bn.sf, color = "blue") +
+  geom_sf(data = homicide, color = "red")
+
+```
+
+We can make a choropleth map of poverty rates in Philadelphia census tracts with the `fill` aesthetic.
+
+```{r}
+ggplot() +
+  geom_sf(data = philly.tracts2, aes(fill = percent_poverty))
+
+```
+
+### Customization in _ggplot2_
+
+Next, let's add some polish to our map with _ggplot2_'s `theme()` commands and custom color palettes. 
+
+```{r}
+library(RColorBrewer)
+library(viridis)
+
+myPalette <- colorRampPalette(brewer.pal(9, "BuPu"))  # RColorBrewer palette
+
+# To save space, we can save theme commands as a function that we can "add" to calls to ggplot
+my_theme <- function() {
+  theme_minimal() +                                  # shorthand for white background color
+  theme(axis.line = element_blank(),                 # further customization of theme components
+        axis.text = element_blank(),                 # remove x and y axis text and labels
+        axis.title = element_blank(),
+        panel.grid = element_line(color = "white"),  # make grid lines invisible
+        legend.key.size = unit(0.8, "cm"),           # increase size of legend
+        legend.text = element_text(size = 16),       # increase legend text size
+        legend.title = element_text(size = 16))      # increase legend title size
+}
+
+ggplot() +
+  geom_sf(data = philly.tracts2, aes(fill = percent_poverty)) +
+  geom_sf(data = homicide, color = "gold", size = 3) +
+  my_theme() +                                           # add our custom theme
+  ggtitle("Tract-level poverty rates in Philadelphia") + # add plot title
+  scale_fill_gradientn(name = "Poverty \nrate (%)",      # change legend title
+                    colours = myPalette(100))            # RColorBrewer palette OR
+                    #colours = viridis(100))             # viridis palette
+  
+```
+
+### Scalebars and north arrows
+
+Publication-ready maps should have scalebars and north arrows, which can be added to maps made with _ggplot2_ with commands in the _ggsn_ library.
+
+```{r}
+library(ggsn)
+
+ggplot() +
+  geom_sf(data = philly.tracts2, aes(fill = percent_poverty)) +
+  my_theme() +    
+  ggtitle("Tract-level poverty rates in Philadelphia") + 
+  scale_fill_gradientn(name = "Poverty \nrate (%)",  
+                    colours = myPalette(100)) +
+  north(x.min = -75.28031, y.min = 39.86747,    # add north bar with north()
+        x.max = -74.95575, y.max = 40.13793,    # set map boundaries with x.min, y.min, etc..      
+        symbol=12,                              # select north arrow symbol
+        anchor = c(x = -75, y = 39.93)) +       # set north bar location
+  scalebar(x.min = -75.28031, y.min = 39.86747, # add scalebar with scalebar()
+           x.max = -74.95575, y.max = 40.13793, # set map boundaries
+           dist = 5, dist_unit = 'km',          # set scalebar segment length = 5km
+           transform = TRUE,                    # TRUE for decimal degree coordinates
+           model = "WGS84")                     # specify CRS
+                       
+
+```
+
+### _ggmap_
+
+Currently, _ggmap_ does not support `sf` objects. To make a map that incorporates map tiles from _ggmap_, one needs to start with an `sp` object and then convert to a `data.frame` object. As an example, I have included code that maps tract-level poverty rates in Philadelphia over a minimal basemap. _ggmap_ interfaces with the GoogleMaps API and requires users to register an API key with GoogleMaps. Instructions for obtaining a GoogleMaps API key can be found [here](https://developers.google.com/maps/documentation/embed/get-api-key).
+
+```{r eval = FALSE}
+library(ggmap)
+register_google("YOUR_API_KEY_HERE")
+
+# Download Philadelphia census tracts as an sp object
+philly.tracts.sp <- readRDS(gzcon(url("https://raw.githubusercontent.com/HimesGroup/BMIN503/master/DataFiles/philadelphia_tracts_2010_sp.rds")))
+
+#  Convert sp object to data frame, so it can be plotted with ggplot2
+pt.df <- fortify(philly.tracts.sp, region = "GEOID10")
+pt.df <- rename(pt.df, GEOID = id)
+
+# Merge pt.df with poverty rates data frame 
+head(pt.df)
+pt.df <- merge(pt.df, percent.poverty, by = "GEOID")
+head(pt.df)
+
+# Retrieve map tile with qmap function
+philly.toner <- qmap("19133", maptype = "toner-lite", zoom = 11)
+
+philly.toner + 
+  geom_polygon(data = pt.df, aes(x = long, y = lat, group = group, # must specify long/lat and group variables
+                                 fill = percent_poverty),
+               alpha = 0.7) +                                      # alpha sets transparency of polygons over basemap
+  my_theme() +
+  scale_fill_gradientn(name = "Poverty \nrate (%)",
+                       colours = myPalette(100))
+
+
+```
+
+
+
+
+## Interactive maps
+
+Interactive maps invite viewers to engage with geospatial data on a deeper level by allowing them to pan around and zoom into any part of a geographic dataset overlaid on a basemap to show context. We can also incorporate popup messages into interactive maps to give viewers additional information about each map feature as they click on it.
+
+### Interactive maps with _mapview_
+
+The _mapview_ library uses the _leaflet_ javascript library to quickly and easily create interactive maps from `sf` objects. Popup messages with data attributes associated with each map feature are automatically generated using the `mapview` command. The disadvantage of using _mapview_ is that it has few customizable options. Thus, you may want to use `mapview` to do a quick exploration of geospatial data before creating a more custom map using the R _leaflet_ library. 
+
+```{r}
+library(mapview)
+
+mapview(homicide)
+###Can't really customize this map
+```
+
+### Interactive maps with _leaflet_
+
+The _leaflet_ library allows users to interface with the javascript library of the same name to create custom interactive maps.
+
+```{r}
+library(leaflet)
+
+# Select a color palette with which to run the palette function
+pal_fun <- colorNumeric("BuPu", NULL)       # Blue-Purple from RColorBrewer
+pal_fun2 <- colorNumeric("YlOrRd", NULL)    # Yellow-Orange-Red from RColorBrewer
+pal_fun3 <- colorNumeric("viridis", NULL)   # viridis from viridis
+pal_fun4 <- colorNumeric("inferno", NULL)   # inferno from viridis
+pal_fun5 <- colorNumeric("inferno", NULL, reverse=TRUE)  # reverses the color ramp
+
+# Pop-up message
+pu_message <- paste0(philly.tracts2$NAMELSAD10,  # paste0 to append tract name with other relevant text 
+                     "<br>Poverty rate: ",       # <br> forces new line
+                     # use round function to round continuous poverty rate to one decimal point
+                     round(philly.tracts2$percent_poverty, 1), "%")
+
+# Basic leaflet map
+leaflet(philly.tracts2) %>%
+  addPolygons(fillColor = ~pal_fun(percent_poverty), # addPolygons requires variable and a pass to a palette function  
+              popup = pu_message) %>%                # add a popup message
+  addTiles()                                         # default basemap
+
+# Adding more customization 
+leaflet(philly.tracts2) %>%
+  addPolygons(stroke = FALSE,                        # remove polygon borders
+              fillColor = ~pal_fun(percent_poverty),
+              fillOpacity = 0.5, smoothFactor = 0.5, # increase opacity and resolution
+              popup = pu_message) %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%   # add third party provider tile
+  #addProviderTiles(providers$Stamen.Toner) %>%
+  #addProviderTiles(providers$Esri.NatGeoWorldMap)
+  addLegend("bottomright",                           # location of legend
+            pal=pal_fun,                             # palette function
+            values=~percent_poverty,                 # variable to be passed to palette function
+            title = 'Poverty rate',                  # legend title
+            opacity = 1) %>%                         # legend opacity (1 = completely opaque)
+  addScaleBar()
+
+```
+
+
+
+

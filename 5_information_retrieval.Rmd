@@ -1,0 +1,211 @@
+---
+title: 'Practicum 5: Information Retrieval'
+author: 'Data Science for Biomedical Informatics (BMIN503/EPID600)'
+output: 
+  html_document:
+    toc: true
+    toc_float: 
+        collapsed: true
+        smooth_scroll: true
+    depth: 3 
+    theme: paper 
+    highlight: tango
+---
+
+***
+In this practicum, we will discuss ways in which data can be loaded into R from local files or via websites. Packages to install:
+```{r eval = FALSE}
+install.packages("feather")
+install.packages("httr")
+install.packages("XML")
+```
+***
+
+### Local files
+
+#### Setting directory
+To access and save files, it is necessary to tell R the exact location of the files. If no path is provided, R assumes you mean the current working directory.  To find out what directory you are currently working in, use `getwd()`. Providing full paths to files can help make code run easily from any directory or a different computer if remote files are being used. Alternatively, you can write your code assuming that everything is accessible based on starting from the working directory.
+
+```{r eval = FALSE}
+setwd("/Users/rebeh/data") #Absolute path on a mac
+setwd("C:/Users/rebeh/data") #Absolute path on Windows (on old versions of Windows use backslashes)
+```
+
+To find out if a directory is present, use `file.exists()`. Directories can be created with `dir.create()`. It is common in R projects to name a directory with data files `data`.
+
+#### Tabular text files
+To begin, let's read in some local text files and explore their properties. Many data analysis projects involve tabular data stored in .txt or .csv formats of small or moderate sizes that can be easily read into R in their entirety. The two main functions to read in these types of datasets into R are `read.table()` and `read.csv()`.
+```{r eval = FALSE}
+t <- read.table(file = "name.txt", #Name of file
+                header = TRUE, #Does the file have a header (names of columns)?
+                sep = "\t", #Character that separates  column entries (tab, space, comma)
+                skip = 0, #Number of lines to skip from beginning
+                as.is = TRUE #Should character variables be left alone 
+                na.strings = NA #The encoding of missing values. Blanks are assumed missing too.
+                comment.char = "#" #Lines of file beginning with this character are ignored. (# default)
+                quote = "" #Character used to quote values. "" is no quotes.
+                nrows = -1 #The number of rows to read in. Negative/invalid values are ignored
+)
+```
+
+To see more details about this function, type `?read.table` at the prompt. A lot of helpful information is there, including hints like:
+
+* Less memory will be used if colClasses is specified as one of the six atomic vector classes
+* Using comment.char = "" will be appreciably faster than the read.table default
+* Using nrows, even as a mild over-estimate, will help memory usage
+
+The `read.csv()` function is like `read.table()` with `sep = ","`. Now let's practice with an actual file. Download the GSE35571_Phenotype.txt file from the course website on Canvas, put it in your working directory, and then open it as a data frame in R with `read.table`. To see some basic attributes of the table use:
+```{r, eval = TRUE}
+t <- read.table("GSE35571_Phenotype.txt", header = TRUE)
+class(t)
+names(t)
+head(t)
+row.names(t)
+dim(t)
+```
+
+
+#### Taking a look at the data frame
+Recall that the `str()` command will show a brief display of an object's internal structure, and the `summary()` command attempts to summarize variables.
+```{r, eval = TRUE}
+str(t)
+summary(t)
+```
+
+Notice that the default behavior was to guess that all columns with strings were of class `factor`. You can modify this behavior in several ways if you'd like to avoid it. For example:
+```{r, eval = TRUE}
+t <- read.table("GSE35571_Phenotype.txt", header = TRUE, as.is = TRUE)
+str(t)
+t <- read.table("GSE35571_Phenotype.txt", header = TRUE, colClasses = c("character","factor", "factor","numeric","factor","character","numeric"))
+str(t)
+```
+
+
+#### Subsetting data frames
+Rarely do we use full data sets in the raw form in which they are loaded. Rather, we access portions of them and manipulate some entries for specific analyses we have in mind. Some ways in which you can obtain a subset of a data frame are similar to those used last time:
+```{r eval = TRUE}
+head(t)
+t[2:5, 1:3]
+t[, 7]
+t$Age
+t[1:5, c("Age", "Sex")]
+```
+
+The `[ ]` can also be used with conditional statements to extract subsets that meet specific criteria. We will go through more of these in the next lecture.
+```{r eval = TRUE}
+t$Age > 12
+t[t$Age > 12, ]
+```
+
+### Large local files
+The `file` command can be used to read in text files when they are too large to be read entirely into memory, or when only a portion of a file will be used. The basic format of the command is:
+```{r, eval = FALSE}
+f <- file(description = "[filename]",
+          open = "r") #type of connection "r" - read; "w" - write; "a" append
+```
+Compressed files can be opened with `gzfile()` (for files compressed by gzip) and `bzfile()` (for files compressed by bzip2) using a similar approach. The `readLines()` command can be used to get a specified number of lines from the file. The analogous command to write lines to an output file is `writeLines()`.
+```{r, eval = TRUE}
+pheno.file <- file("GSE35571_Phenotype.txt", open = "r")
+pheno.file
+pheno.lines <- readLines(pheno.file, 20)
+pheno.lines
+```
+
+### Feather for large data frames
+For large data frames (>1GB in RAM), the [_feather_](https://github.com/wesm/feather) format can be used instead of _read.table_ to speed up access to, and manipulation of, data. The [_feather package_](https://cran.r-project.org/web/packages/feather/index.html) is one of a few alternative formats that is increasingly used in R to deal with large files. We will not use this package much in class, but it is being introduced as an alternative that some of you may need to use now or in the future.
+
+```{r eval=TRUE}
+library(feather)
+pheno.feather <- read_feather("GSE35571_Phenotype.feather")
+str(pheno.feather)
+head(pheno.feather)
+```
+While for this small file using text versus feather format doesn't make a difference, there is a big difference in compute time with larger files. We next use the R `system.time` command to explicitly test the runtime difference, where the output of that function is:
+
+* _user_ time = CPU time to execute process instructions
+* _system_ time = CPU time charged on behalf of those instructions
+* _elapsed_ time = the actual amount of time elapsed for the instructions to complete
+
+First, we will save files with (pseudo) randomly generated `heads` and `tails` using the `sample()` function. To ensure randomly generated functions yield the same output, R has a `set.seed()` function.
+```{r, eval = TRUE}
+set.seed(1234)
+flips.small <- data.frame(flips = sample(c("heads", "tails"), 1E4, TRUE))
+table(flips.small)
+
+test.file <- tempfile()
+write.table(flips.small, file = test.file)
+system.time(read.table(test.file))
+
+test.feather <- tempfile()
+write_feather(flips.small, test.feather)
+system.time(read_feather(test.feather))
+
+#Now for a larger file
+set.seed(1234)
+flips.large <- data.frame(flips = sample(c("heads", "tails"), 1E7, TRUE)) 
+table(flips.large)
+
+test.file <- tempfile()
+system.time(write.table(flips.large, file = test.file))
+system.time(read.table(test.file))
+
+test.feather <- tempfile()
+system.time(write_feather(flips.large, test.feather))
+system.time(read_feather(test.feather))
+```
+
+
+### Connections with Other External Sources of Data
+R can read in data from several external sources using _connections_. Text files as covered so far are an external source of data to R, but now we will see how to connect to files that are not on our computer. We will focus mostly on tabular text files, and as the course proceeds, we will explore related domain-specific formats. We won't cover XML or JSON formats in much detail, but there are packages that can aid in handling those datatypes: [XML](https://CRAN.R-project.org/package=XML) and [jsonlite](https://CRAN.R-project.org/package=jsonlite). There is also an R package to handle HDF5 data that is part of Bioconductor: [rhdf5](https://www.bioconductor.org/packages/release/bioc/html/rhdf5.html).
+
+#### Websites
+To establish a connection with a website, use the `url()` command. This approach is analogous to that of opening a connection to files using the `file` command. Portions of the content can be read in with `readLines`.
+```{r, eval = FALSE}
+con <- url("https://en.wikipedia.org/wiki/Exploratory_data_analysis", "r")
+x <- readLines(con, 10) #Get the first 20 lines
+close(con)
+con <- url("https://en.wikipedia.org/wiki/Exploratory_data_analysis", "r")
+while (length( current.line <- readLines(con, 1, warn = FALSE)) > 0) {
+      print(current.line) #Print out line-by-line
+} 
+close(con)
+```
+Accessing an html website can also be done with the [`httr`](https://CRAN.R-project.org/package=httr) package. This package can open connections that require login/password information, and can send data back to a website. For more on how to access websites using this package, see its [vignette](https://cran.r-project.org/web/packages/httr/vignettes/quickstart.html).
+```{r, eval = FALSE}
+library(httr)
+library(XML)
+url <- "http://www.gutenberg.org/cache/epub/148/pg148.html"
+sample.html <- GET(url)
+sample.html
+content <- content(sample.html, as = "text")
+content
+parsed.html <- htmlParse(content, asText = TRUE)
+parsed.html
+```
+
+For the data file loaded previously after downloading from GitHub, we could load directly from GitHub. Notice that to get the correct url from GitHub, you have to click on the _Raw_ version of a data file.
+```{r, eval = FALSE}
+x <- url("https://raw.githubusercontent.com/HimesGroup/BMIN503/master/DataFiles/GSE35571_Phenotype.txt")
+x
+y <- read.table(x, header = TRUE)
+head(y)
+```
+
+
+To *download* files from another site, rather than just read in from the source, use the `download.file` command. In reports that use data downloaded from a site, include the date of the download, which can be obtained with the `date()` command. An approach like this is preferred over manual downloading of the file as we did earlier since the steps would be captured explicitely in your code.
+```{r, eval = FALSE}
+our.url <- "https://raw.githubusercontent.com/HimesGroup/BMIN503/master/DataFiles/GSE35571_Phenotype.txt"
+download.file(our.url, destfile = "./GSE35571_Phenotype.txt")
+```
+
+
+#### GitHub and RStudio
+One more connection type that will help us keep a reproducible research project is to use RStudio to connect to a GitHub repository. To link an existing GitHub repository to RStudio on your computer, select the "Project" Icon in the upper-right-hand corner of RStudio -> New Project -> Version Control -> Git. Enter the repository url for the GitHub repository (e.g. ``https://github.com/[your username]/test-repo.git``), a local project directory name (e.g. ``test-repo``), then select "Create Project". Notice that doing this will clone all of the remote files to your computer and now you can work on the project there. As you make changes to the project, you can use the "Git" tab to pull, commit, and push commands to sync between your local copy and that on GitHub.
+
+If when you open the RStudio "Project" icon you get a message about `Git Not Found`, you have to point to the location of the git executable in RStudio. Some instructions on how to do this are [here](http://happygitwithr.com/rstudio-see-git.html).
+
+We will use this approach to work on the final project. First, fork the [Final Project Repository](https://github.com/HimesGroup/BMIN503_Final_Project) to your GitHub account. Then, make a project for this repository on your computer by selecting the link to your copy on GitHub (remember to append `.git` to the copied `url`. You can now save changes to GitHub from RStudio where you will eventually have your final version to turn in via a pull request.
+
+
+
+

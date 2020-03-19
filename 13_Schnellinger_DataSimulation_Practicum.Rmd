@@ -1,0 +1,181 @@
+---
+title: "Data Simulation Practicum"
+author: "Erin Schnellinger"
+date: "October 17, 2019"
+output:
+  html_document:
+    df_print: paged
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Try your hand at these simulation exercises! Before you get started, here are some general tips:
+
+* If you want to reproduce your results, be sure to set a seed prior to drawing random numbers.
+* Initialize parameters and vectors at the beginning of your code.
+* Start small and work your way up, testing your code along the way.
+* Use the *system.time()* function to calculate how long it takes for your simulation to run.
+
+Also included are some motivating examples of when you might undertake each of these exercises.
+
+## Practice Exercises
+
+**1. Generate 500 random variables from an exponential distribution with rate parameter 5. Plot the histogram for the exponentially distributed random variables overlaid with a density curve for the true exponential distribution. Include appropriate axes, legends, etc. as helpful.**
+
+*Motivating Example: Suppose you are interested in studying how long patients survive after receiving a particular treatment. One way to simulate survival time is to draw from an exponential distribution with rate equal to the reciprocal of the mean follow-up time.* 
+
+```{r}
+set.seed(9131651)
+exp.samp <- rexp(500, 5)
+
+# Plot a histogram of the exponential random variables
+hist(exp.samp, main = 'Histogram of Exponential Random Variables', xlab = 'Exponential (E(5)) Random Variables', col = 'blue', freq = FALSE)
+
+
+# Overlay density curve
+curve(dexp(x, rate = 5), log = FALSE, add = TRUE, col = 'green', lwd = 2)
+```
+
+
+**2. Sample a value from a normal distribution with mean = 0 and standard deviation = variance = 1 (i.e., sample from the $N(0, 1)$ distribution). If your number has an absolute value greater than 0.25, resample it until it has an absolute value less than or equal to 0.25. Also keep track of how many tries it takes to generate the desired value.**
+
+*Motivating Example: Suppose you are a hospital administrator. You would like to set up an alert system which will flag individuals who have a lab value outside of a particular range of "acceptable" values, so that these individuals' healthcare providers will be notified. You also want to track how long it takes before the lab values of flagged individuals return to within the "acceptable" range, to ensure that patients' health concerns are  addressed in a timely manner.* 
+
+```{r}
+# Initialize Looping variables
+i <- 1
+samp.val <- 1
+               
+while (abs(samp.val) > 0.25) {
+  print(i)  # Print the trial number we're on
+  samp.val <- rnorm(n = 1, mean = 0, sd = 1)  
+  print(samp.val)  # Print the sample value
+  if ((abs(samp.val) > 0.25)) {
+    print("absolute value greater than 0.25, run again")
+    i <- i + 1   # Increment the trial number
+  }
+  if ((abs(samp.val) <= 0.25)) {
+    print("absolute value was less than or equal to 0.25, stop")
+  }
+} 
+
+# After the loop ends, print the final values
+print(paste0("Absolute value was less than 0.25 on trial number ", i), quote = FALSE)
+print(paste0("Sample value equals ", samp.val), quote = FALSE)
+```
+
+Alternatively, we can create a function:
+
+```{r}
+trunc.norm.samp <- function(n, mu, s){
+  i <- 1
+  samp.val <- 1
+  while (abs(samp.val) > 0.25) {
+    i <- i + 1   # Increment the trial number
+    samp.val <- rnorm(n, mu, s)
+  }
+# Print the number of tries it took to get a number with absolute value < 0.25, along with the number itself  
+return (list = c(i, samp.val))  
+}
+
+# Call the function
+trunc.norm.samp(1, 0, 1)
+```
+
+
+**3. Sample $\sigma$ from {0.1, 1, 10}. If it is less than 1, find the mean of 10 draws from a $N(0, \sigma^2)$ distribution. If it is greater than 1, find the mean of 100,000 draws from a $N(0, \sigma^2)$ distribution; otherwise, find the mean of 1,000 draws from a $N(0, \sigma^2)$ distribution.**
+
+*Motivating Example: Suppose you have designed an educational intervention to improve students' test scores. You hypothesize that this intervention might perform differently depending on how many students are exposed to the intervention in a given school. To test this hypothesis, you might simulate three schools, each with a different number of students, and each with a different variability in test scores.* 
+
+```{r}
+# Set up sample space
+samp.space <- c(0.1, 1, 10)
+
+# Draw sigma from sample space
+sig.samp <- sample(x = samp.space, size = 1, replace = TRUE)
+
+# Conditional programming
+if (sig.samp < 1) {
+  print(paste0("Sigma is less than 1. Find mean of 10 draws from normal distribution"), quote = FALSE)
+  norm.samp <- rnorm(n = 10, mean = 0, sd = sig.samp)
+  mean.norm.samp <- mean(norm.samp)
+  print(mean.norm.samp)
+} else if (sig.samp > 1) {
+  print(paste0("Sigma is greater than 1. Find mean of 100,000 draws from normal distribution"), quote = FALSE)
+  norm.samp <- rnorm(n = 100000, mean = 0, sd = sig.samp)
+  mean.norm.samp <- mean(norm.samp)
+  print(mean.norm.samp)
+} else {
+  print(paste0("Sigma equals 1. Find mean of 1,000 draws from normal distribution"), quote = FALSE)
+  norm.samp <- rnorm(n = 1000, mean = 0, sd = sig.samp)
+  mean.norm.samp <- mean(norm.samp)
+  print(mean.norm.samp)
+}
+```
+
+
+**4. Generate 50 Bernoulli ($p_{1}$ = 0.4) and 50 Bernoulli ($p_{2}$ = 0.2) samples 1000 times in R. For each sample, estimate the risk difference (RD), risk ratio (RR), odds ratio (OR), log(RR), and log(OR) and make a histogram of your estimates. Which histograms look closer to being approximately normal?**
+
+*Motivating Example: Suppose you have developed a new drug to reduce the incidence of myocardial infarction. To test the effectiveness of this drug, you recruit two groups of patients. The first group receives your new drug, while the second receives the current standard of care. You follow both groups of patients for 1 year, and then compare the risk and odds of myocardial infarction in each group. (Note: here we compute risk ratios and odds ratios, but in actuality the decision regarding whether to use risk ratios, odds ratios, or hazard ratios depends on your study design).* 
+
+```{r}
+# Generate the samples
+p1 <- sapply(1:1000, function(x) mean(rbinom(n = 50, size = 1, prob = 0.4)))
+p2 <- sapply(1:1000, function(x) mean(rbinom(n = 50, size = 1, prob = 0.2)))
+
+# Calculate the RD
+rd <- p1 - p2
+hist(rd, freq = FALSE, col = 'blue', main = "Risk Differences", xlab = "P1 - P2")
+
+# Calculate the RR
+rr <- p1 / p2
+hist(rr, freq = FALSE, col = 'blue', main = "Risk Ratios", xlab = "P1 / P2")
+
+# Calculate the OR
+odds.p1 <- p1 / (1 - p1)
+odds.p2 <- p2 / (1 - p2)
+or <- odds.p1 / odds.p2
+hist(or, freq = FALSE, col = 'blue', main = "Odds Ratios", xlab = "[P1/(1-P1)] / [P2/(1-P2)]")
+
+# Calculate the log(RR)
+log.rr <- log(rr)
+hist(log.rr, freq = FALSE, col = 'blue', main = "Log Risk Ratios", xlab = "Log(P1/P2)")
+
+# Calculate the log(OR)
+log.or <- log(or)
+hist(log.or, freq = FALSE, col = 'blue', main = "Log Odds Ratios", xlab = "Log([P1/(1-P1)] / [P2/(1-P2)])")
+```
+
+The RD, log(RR), and log(OR) histograms look more normally distributed.
+
+
+**5. Consider simulating $x_{i}$ and $y_{i}$ as may arise in a regression problem. Generate 50 independent observations arising from a uniform distribution over the interval 0 to 5. These will be our independent ($x_{i}$) variables: $x_{1}, ..., x_{50}$. From these, generate dependent variables ($y_{i}$) as:**
+
+$$y_{i} = 5 − 2*x_{i} + (x_{i})^2 + \epsilon_{i}$$
+
+**for $i = 1, ..., 50$, where the $\epsilon_{i}$ are independent error terms arising from a normal distribution with mean 0 and variance 4. After generating the data, make a scatterplot with a lowess smooth of the data. Include appropriate axes, symbols, colors, legends, etc. as helpful.**
+
+*Motivating Example: Suppose you observe an intriguing association between an exposure and an outcome, but want to determine whether this association is "real" (i.e., you want to assess the risk of bias in your study). As a start, you can vary the extent of "noise" in your data (e.g., by increasing or decreasing the variance of the error terms, or by adding in a new predictor variable as an unmeasured confounder). If the observed association between your exposure and outcome remains even when there is a lot of noise/unmeasured confounding, then you can be more confident that your observed study results are "real".* 
+
+```{r}
+# Generate the x's
+x.samp <- runif(50, min = 0, max = 5)
+
+# Generate the error terms
+err.samp <- rnorm(n = 50, mean = 0, sd = sqrt(4))
+
+# Generate the y's:
+y.samp <- 5 - 2 * x.samp + (x.samp)^2 + err.samp
+
+# Make a scatter plot of y vs. x
+plot(x.samp, y.samp, main = "y versus x", xlab = "x", ylab = "y", col = 4)
+
+# Use SCATTER.SMOOTH to plot data with smoothed line overlayed
+scatter.smooth(x.samp, y.samp, main = "Lowess-Smoothed plot of y vs. x", xlab = "x", ylab = "y", col = 2)
+```

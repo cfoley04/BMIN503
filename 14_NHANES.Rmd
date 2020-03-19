@@ -1,0 +1,195 @@
+---
+title: 'Practicum 14: NHANES Data Download and Overview'
+author: 'Data Science for Biomedical Informatics (BMIN503/EPID600)'
+output: 
+  html_document:
+    toc: true
+    toc_float: 
+        collapsed: true
+        smooth_scroll: true
+    depth: 3 
+    theme: paper 
+    highlight: tango
+---
+
+```{r global options, include = FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```   
+
+***
+New packages to install for this practicum:
+```{r, eval = FALSE}
+install.packages("nhanesA")
+install.packages("plyr")
+```
+***
+
+### Obtaining NHANES data
+
+The National Health and Nutrition Examination Survey (NHANES), is a CDC study that assesses health and nutrion status of U.S. adults and children. Although NHANES data can be obtained from the [CDC website](http://www.cdc.gov/nchs/nhanes.htm), the R package [nhanesA](https://cran.r-project.org/web/packages/nhanesA/index.html) facilitates extraction of data from this resource fo use in R. Note that selection of variables of interest is still a laborious process that involves consulting NHANES codebooks and summaries of modules used in different years. Different questionnaires and exams were performed in different years, so grouping data across time requires particular care. See this [site](https://wwwn.cdc.gov/Nchs/Nhanes/Search/) to peform searches for specific variables. Here are examples of notation:
+
+Suffix | Years
+-------|------
+_I | 2015-2016
+_H | 2013-2014 
+_G | 2011-2012
+_F | 2009-2010
+_E | 2007-2008
+
+Module | Abbreviation | Notes
+--------|--------------|------
+Demographics | DEMO |
+Blood Pressure | BPX | Relates to obesity/hypertension- heart attack
+Body Measures | BMX | Relates to obesity
+Exhaled Nitric Oxide | ENX |
+Spirometry - Pre and Post-Bronchodilator | SPX |
+Air Quality | AQQ |
+Alcohol Use | ALQ |
+Blood Pressure & Cholesterol | BPQ |
+Cardiovascular Health | CDQ |
+Consumer Behavior | CBQ | Relates to eating habits
+Consumer Behavior - Phone Follow Up | CBQPFA |
+Current Health Status | HSQ |
+Diabetes | DIQ |
+Diet Behavior & Nutrition | DBQ |
+Drug Use | DUQ |
+Food Security | FSQ | Relates to income/eating habits
+Health Insurance | HIQ | Relates to income level
+Hospital Utilization & Access to Care | HUQ | Relates to income 
+Income | INQ |
+Medical Conditions | MCQ |
+Respiratory Health | RDQ |
+Smoking - Cigarette Use | SMQ |
+Smoking - Household Users | SMQFAM |
+Smoking - Recent Tobacco Use | SMQRTU |
+Smoking - Secondhand Smoke Exposure | SMQSHS |
+Volatile Organic Compounds | VOC |
+Weight History | WHQ |
+
+For this practicum, we will extract some data to relate demographic variables to drug use reported among NHANES participants.
+```{r eval = TRUE}
+library(nhanesA) 
+library(plyr)
+library(dplyr)
+varlist <- c("DEMO", "DUQ") 
+varlist_years <- paste0(varlist, c("_I"))
+
+#Load everything from varlist_years in nhanes as a list)
+list_all <- sapply(varlist_years, function(x) {data.frame(nhanes(x))}) 
+
+#Create a data.frame for each module
+for(i in 1:length(list_all)) {
+  assign(names(list_all)[i], list_all[[i]])
+} 
+
+#Combine years for each module
+for (i in 1:length(varlist)){
+  assign(varlist[i], plyr::rbind.fill(mget(grep(varlist[i], ls(), value = T))))
+} 
+rm(list = grep("_[DEFGHI]", ls(), value = T))
+
+#Create a single data.frame that combines all modules 
+nhanes.data <- merge(get(varlist[1]), get(varlist[2]), by = "SEQN", all = T)
+#The following for loop could be used if more than two modules selected
+#for (i in 3:length(varlist)){
+#  data <- merge(data,get(varlist[i]), by="SEQN", all=T)
+#} 
+rm(list = ls()[-which(ls() == "nhanes.data")])
+```
+
+### Selecting NHANES variables
+We have a data.frame with all variables for the modules of interest. Next, we will further filter to the following specific variables:
+
+Variable Name | Description
+--------------|------------
+SEQN | responded ID
+RIAGENDR | gender
+RIDAGEYR | age in years at screening
+RIDRETH1 | Race/Hispanic origin
+DMDEDUC2 | "Education level - adults 20+"
+INDHHIN2 | "Annual household income"
+DUQ200 | "Ever used marijuana or hashish
+DUQ250 | "Ever use any form of cocaine"
+DUQ290 | "Ever use heroin"
+DUQ330 | "Ever used methamphetamine"
+
+
+```{r eval=TRUE}
+variables.wanted <- c("SEQN","RIAGENDR","RIDAGEYR","RIDRETH1","DMDEDUC2", "INDHHIN2", "DUQ200", "DUQ250", "DUQ290", "DUQ330")
+
+nhanes.practice <- nhanes.data %>%
+    select(id=SEQN, gender=RIAGENDR, age=RIDAGEYR, race=RIDRETH1, education=DMDEDUC2, income=INDHHIN2, marijuana=DUQ200, cocaine=DUQ250, heroin=DUQ290, meth=DUQ330) %>%
+    mutate(gender=factor(gender, levels=c(1, 2), labels=c("male", "female"))) %>%
+    mutate(race=factor(race, levels=c(3, 1, 2, 4, 5), labels=c("white", "MexicanAmerican", "Hispanic", "black", "other"))) %>%
+    mutate(marijuana=factor(marijuana, levels=c(1, 2), labels=c("yes", "no"))) %>%
+    mutate(cocaine=factor(cocaine, levels=c(1, 2), labels=c("yes", "no"))) %>%
+    mutate(heroin=factor(heroin, levels=c(1, 2), labels=c("yes", "no"))) %>% 
+    mutate(meth=factor(meth, levels=c(1, 2), labels=c("yes", "no"))) %>%
+    filter(income %in% c(1:10, 14, 15)) %>%
+    mutate(income.short = cut(income, breaks=c(0, 5, 10, 15), labels=c("<$25K", "$25-75K", ">$75K")))
+```
+
+### Exploratory analysis
+
+We proceed with a partial exploratory analysis. First, look at individual variables, then look at bivariate relationships.
+```{r eval = TRUE}
+library(ggplot2)
+library(cowplot)
+ggplot(data = nhanes.practice, aes(x = gender)) +
+    geom_bar() 
+
+ggplot(data = nhanes.practice, aes(x = income.short)) +
+    geom_bar()
+
+d1 <- ggplot(data = nhanes.practice, aes(x = marijuana)) +
+        geom_bar()
+d2 <- ggplot(data = nhanes.practice, aes(x = cocaine)) +
+        geom_bar()
+d3 <- ggplot(data = nhanes.practice, aes(x = heroin)) +
+        geom_bar()
+d4 <- ggplot(data = nhanes.practice, aes(x = meth)) +
+        geom_bar()
+
+plot_grid(d1, d2, d3, d4, labels = "AUTO")
+
+g1 <- ggplot(data = nhanes.practice, aes(x = marijuana, fill = gender)) +
+        geom_bar(position = "fill") + ylab("Percent")
+g2 <- ggplot(data=nhanes.practice, aes(x = cocaine, fill = gender)) +
+        geom_bar(position = "fill") + ylab("Percent")
+g3 <- ggplot(data=nhanes.practice, aes(x = heroin, fill = gender)) +
+        geom_bar(position = "fill") + ylab("Percent")
+g4 <- ggplot(data=nhanes.practice, aes(x = meth, fill = gender)) +
+        geom_bar(position = "fill") + ylab("Percent")
+
+plot_grid(g1, g2, g3, g4, labels = "AUTO")
+
+r1 <- ggplot(data = nhanes.practice, aes(x = race, fill = marijuana)) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        geom_bar(position = "fill") + ylab("Percent")
+r2 <- ggplot(data = nhanes.practice, aes(x = race, fill = cocaine)) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        geom_bar(position = "fill") + ylab("Percent")
+r3 <- ggplot(data = nhanes.practice, aes(x = race, fill = heroin)) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        geom_bar(position = "fill") + ylab("Percent")
+r4 <- ggplot(data = nhanes.practice, aes(x = race, fill = meth)) +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        geom_bar(position = "fill") + ylab("Percent")
+
+plot_grid(r1, r2, r3, r4, labels = "AUTO")
+
+i1 <- ggplot(data = nhanes.practice, aes(x = income.short, fill = marijuana)) +
+        geom_bar(position = "fill") + ylab("Percent")
+i2 <- ggplot(data = nhanes.practice, aes(x = income.short, fill = cocaine)) +
+        geom_bar(position="fill") + ylab("Percent")
+i3 <- ggplot(data = nhanes.practice, aes(x = income.short, fill = heroin)) +
+        geom_bar(position="fill") + ylab("Percent")
+i4 <- ggplot(data = nhanes.practice, aes(x = income.short, fill = meth)) +
+        geom_bar(position = "fill") + ylab("Percent")
+
+plot_grid(i1, i2, i3, i4, labels = "AUTO")
+```
+
+What are some things you notice about the variables plotted? Can we use these raw counts to make conclusions about the characteristics of drug users in the U.S.? What are some things that those designing NHANES do to try to make their data be representative of the U.S. population? A place to start understanding design issues is [here](https://www.cdc.gov/nchs/tutorials/NHANES/SurveyDesign/intro.htm). To analyze survey data while taking its design weights into consideration, you can use the R [survey](https://cran.r-project.org/web/packages/survey/survey.pdf) package. If you are interested in using NHANES data for a study, thoroughly consult its documentation. 
+
+
