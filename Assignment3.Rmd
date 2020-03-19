@@ -1,0 +1,190 @@
+---
+title: "Assignment 3"
+author: "Data Science for Biomedical Informatics (BMIN503/EPID600)"
+output: 
+  html_document:
+    toc: false 
+    depth: 3 
+    theme: paper 
+    highlight: tango
+---
+    
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 400)
+```   
+***
+
+### Instructions
+
+- Download the Rmd version of this file
+- Complete the questions below in RStudio using the Rmd file as a template 
+- Replace text in brackets with your answers. (There is no need to keep the brackets).
+- Save the Rmd document as Assignment3_*YOUR LAST NAME*.Rmd
+- Create an HTML version using knitr
+- Turn in completed Assignment3_*YOUR LAST NAME*.html file in Canvas under Assignments -> Assignment 3
+- Your assignment **must** be in html format or it will not be graded
+- Grades will be assigned according to point scheme below and computed as a percentage of total possible points
+- Lateness policy: If an urgent and unforseen circumstance comes up and you need an extension to turn in an assignment, please contact Blanca, Erin, and/or Emma as soon as possible. Unless there is an arrangement in place, late assignments will be scored as follows: 
+    - 25% of total score if 1 day late
+    - 50% of total score if 2 days late
+    - 75%  of total score if 3 days late
+    - Assignment will not be graded if 4 or more days late
+- DUE DATE: 10/4/19
+
+
+### Final Project - Repository
+
+1. Fork the [Final Project Repository](https://github.com/HimesGroup/BMIN503_Final_Project) to your GitHub account, and then pull this repository as a new project on your local computer by using the _Project_ menu in the upper-right-hand corner of RStudio, selecting a _New Project_, creating it via _Version Control_ -> _Git_ -> and entering your GitHub repository (remember to append `.git` to the copied `url`). You can now work on your final project from your computer, and easily push updates to your GitHub account, where the final version will be saved. A _Git_ tab will be available that you can use to _Pull_, _Commit_, and _Push_ changes between your local version and that on GitHub without having to use the command line. *(1 point for forking repository)*
+
+2. In 2-3 sentences, describe what question you will answer for your final project and what data will you use. There is a list of public data sources at the bottom of the [Optional Reading](https://github.com/HimesGroup/BMIN503/blob/master/Module1_Optional_Reading.Rmd) document that you can look through if you are having difficulty identifying public data. If you'd like help to pick a question, please let Blanca know soon. *(2 points)*
+
+I am planning to work with the TCGA RNA sequencing data for hepatocellular carcinoma (TCGA. Cell, 2017).  I'm interested in whether a subset of HCC express two interferon driven gene signatures of interest to our lab, ISG.RS (Weichselbaum RR, et al. PNAS, 2008) and IFNG.GS (Benci J, et al. Cell, 2019).
+
+3. What three faculty/staff (name, title, division/department) have you met or are planning to meet to discuss your project? *(2 points)*
+
+Andy Minn, Associate Professor of Radiation Oncology
+David Kaplan, Associate Professor of Medicine (hepatology), VA Medical Center
+Mengyuan Kan, Postdoctoral Fellow, Himes laboratory
+
+### Cleaning and Transforming data, Descriptive Statistics and Regression
+4. Install and load the `nycflights13` package to do this problem. This package includes the [flights](https://www.rdocumentation.org/packages/nycflights13/versions/1.0.0/topics/flights) dataset, which contains information on 336,776 flights that departed from New York City in 2013 and is often used to learn `dplyr` commands. If you need more guided practice with `dplyr`, beyond what we did in class, you can go through this [vignette](https://cran.r-project.org/web/packages/dplyr/vignettes/dplyr.html). Use `dplyr` to answer the following questions by inserting code below each bullet to provide the answer directly. *(10 points)*
+
+```{r}
+library(nycflights13)
+library(tidyverse)
+library(GGally)
+library(MASS)
+```
+
+    + Which airports are included in the dataset as having flights originating from NYC? Which airport had the most departing flights?
+```{r}
+flights %>% group_by(origin) %>% tally()
+```
+Data set includes Newark, JFK and LaGaurdia.  Newark had the most departing flights    
+    
+    + Of the flights that departed in the second half of the year from La Guardia (LGA), how many unique tailnum contained "SW" or "NW"?
+```{r}
+flights %>% 
+  filter(month > 6, origin == "LGA", str_detect(tailnum, "NW|SW")) %>% summarize(n_distinct(tailnum))
+
+```
+    
+    
+    + Which destination(s) had only one flight in any given month?
+```{r}
+flights %>%
+  group_by(month)%>%
+  count(dest) %>%
+  arrange(n) %>%
+  filter(n==1)
+  
+```
+    
+    
+    + Was the mean departure delay time per carrier related to the total number of flights per carrier? The answer should show a plot and use one sentence to address this question qualitatively.
+
+```{r}
+flights %>%
+  group_by(carrier) %>%
+  summarize(n_flights = n(),
+            delay = mean(dep_delay, na.rm = TRUE)) %>%
+  ggplot(aes(n_flights, delay, color = carrier)) +
+  geom_point() +
+  labs(title = "Number of flights vs mean delay") +
+  labs(x = "number of flights", y = "mean delay (minutes)")
+
+
+```
+
+
+There is no direct linear relationship between number of flights a carrier has and mean departure delay time.
+
+
+    + Was the mean delay time for a given time of departure related to the time of departure? Does this relationship change by the airport where flights originated from? The answer should show a plot and use two sentences to address these questions qualitatively.
+
+```{r}
+flights %>%
+   group_by(sched_dep_time) %>%
+  summarize(n_flights = n(),
+            delay = mean(dep_delay, na.rm = TRUE)) %>%
+  ggplot(aes(sched_dep_time, delay)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "gray") +
+  labs(title = "Departure time vs mean delay") +
+  labs(x = "departure time (military time)", y = "mean delay (minutes)")+
+  xlim(c(500, 2400))
+
+
+flights %>%
+   group_by(origin, sched_dep_time) %>%
+  summarize(n_flights = n(),
+            delay = mean(dep_delay, na.rm = TRUE)) %>%
+  ggplot(aes(sched_dep_time, delay, color = origin)) +
+  geom_point() +
+  facet_grid(~origin) +
+  geom_smooth(method = "lm", color = "gray") +
+  labs(title = "Departure time vs mean delay") +
+  labs(x = "departure time (military time)", y = "mean delay (minutes)")+
+  xlim(c(500, 2400))
+```
+
+
+There appears to be a correlation with later departures having longer delays across all 3 NYC airports as well as each individual airport.
+
+5. Load the `MASS` package, which contains the  [birthwt](https://stat.ethz.ch/R-manual/R-devel/library/MASS/html/birthwt.html) dataset, to answer the following questions. We will work toward identifying variables that are associated with low birthweight, both as a dichotomous outcome and a continuous one. HINT: The `MASS` package contains a `select` command that may compete with that from `dplyr`. If you have `dplyr` and `MASS` loaded simultaneously and want to use `dplyr`'s `select`, do it explicitly. For example, use `dplyr::select` rather than `select`. *(9 points)*
+    + Take a look at the `birthwt` dataset (e.g., using `str()`) to get a sense of variables it contains. We will use the variables `low` and `bwt` as outcomes and `age`, `race`, `smoke`, `ht`, `ptl` as predictors. Create a new dataset `birthwt.clean` containing only the variables we are interested in,b where (1) the variables `low`, `ht`, and `ptl` are renamed `low.birth.wt`, `hypertension`, and `prem.labor`, respectively, (2) all integer categories (i.e., `low.birth.wt`, `race`, `smoke`, `hypertension`, `prem.labor`) are converted to factors with intuitive labels, (3) the `race` variable does not include the `other` category, and (4) the `ptl` variable is dichotomized into two levels based on a positive or negative history of previous premature labor. 
+    + Perform bivariate analysis for the resulting `age` and `smoke` variables you created as predictors and `low.birth.wt` and `bwt` as outcomes. Include appropriate plots that look at the pairwise relationships between the outcomes and each predictor and fit appropriate regression models between each outcome and each predictor individually. Are there differences between the results for each outcome?
+    + Create multivariable regression models for `low.birth.wt` and `bwt` using `age`, `race`, `smoke`, `hypertension`, and `prem.labor` as predictors. What factors are significantly associated with the birth weight outcomes?
+
+```{r}
+library(MASS)
+birthwt.clean <- birthwt %>% dplyr::select("low", "bwt", "age", "race","smoke", "ht","ptl")
+birthwt.clean %<>% dplyr::rename(low.birth.wt = low, hypertension = ht, prem.labor = ptl) %>% 
+  mutate(low.birth.wt = factor(low.birth.wt, levels = c(0,1), labels = c("<2.5kg", ">2.5kg"))) %>%
+  mutate(race = factor(race, levels = c(1:3), labels = c("white", "black", "other"))) %>%
+  mutate(smoke = factor(smoke, levels = c(0,1), labels = c("nonsmoker", "smoker"))) %>%
+  mutate(hypertension = factor(hypertension, levels = c(0,1), labels = c("normotensive", "hypertensive"))) %>%
+  mutate(prem.labor = factor(prem.labor, levels = c(0,1), labels = c("none", "prior"))) %>%
+  filter(race != "other")
+
+birthwt.clean %>%
+  ggplot(aes(age, bwt)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = TRUE, color = "blue") +
+  facet_wrap(~smoke)
+
+model_age <- glm(low.birth.wt ~ age, data = birthwt.clean, binomial)
+range(birthwt.clean$age)
+xage <- seq(14, 45, 2)
+yage <- predict(model_age, list(age=xage),type="response")
+fit_model_age <- predict(model_age, birthwt.clean, type = "response")
+
+###plot(numeracy, success, pch = 16, xlab = "NUMERACY SCORE", ylab = "ADMISSION")
+  ggplot(aes(age, bwt)) +
+  geom_point() + 
+lines(xage, yage, col = "red", lwd = 2)
+
+```
+
+
+```{r}
+ggpairs(birthwt.clean, mapping = aes(col = low.birth.wt), columns = c("age", "race", "smoke", "hypertension"))
+```
+
+
+```{r}
+birthwt.clean %>% head
+
+fit_bw <- glm(low.birth.wt ~ age + smoke, data = birthwt.clean, family=binomial())
+summary(fit_bw)
+fit_bw.pred <- predict(fit_bw, birthwt.clean, type = "response")
+fit_bw.pred
+
+fit_bwt <- lm(bwt ~ age + smoke + hypertension + prem.labor +age, data = birthwt.clean)
+summary(fit_bwt)
+glm.pred <- predict(fit_bwt, birthwt.clean, type = "response")
+glm.pred
+```
+
+
+

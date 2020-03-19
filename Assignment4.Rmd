@@ -1,0 +1,326 @@
+---
+title: "Assignment 4"
+author: "Data Science for Biomedical Informatics (BMIN503/EPID600)"
+output:
+  html_document:
+    toc: false 
+    depth: 3 
+    theme: paper 
+    highlight: tango
+---
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 400)
+```   
+
+***
+
+### Instructions
+
+- Download the Rmd version of this file
+- Complete the questions below in RStudio using the Rmd file as a template 
+- Replace text in brackets with your answers. (There is no need to keep the brackets).
+- Save the Rmd document as Assignment4_*YOUR LAST NAME*.Rmd
+- Create an HTML version using knitr
+- Turn in completed Assignment4_*YOUR LAST NAME*.html file in Canvas under Assignments -> Assignment 4
+- Your assignment **must** be in html format or it will not be graded
+- Grades will be assigned according to point scheme below and computed as a percentage of total possible points
+- Lateness policy: If an urgent and unforseen circumstance comes up and you need an extension to turn in an assignment, please contact Blanca, Erin, and/or Emma as soon as possible. Unless there is an arrangement in place, late assignments will be scored as follows: 
+    - 25% of total score if 1 day late
+    - 50% of total score if 2 days late
+    - 75%  of total score if 3 days late
+    - Assignment will not be graded if 4 or more days late
+- DUE DATE: 10/24/19
+
+
+### Final Project - Meeting Progress
+
+1. What have you learned from the faculty/staff (name, title, division/department) you have already met with to discuss your project? Explain how you have refined the question you are addressing. *(3 points)*
+
+I've talked the project over with Andy Minn (Associate prof Radiation Oncology) and David Kaplan (Assoc Prof Gastroenterology) and it may be challenging to make any conclusions from interferon-target gene signatures in hepatocellular carcinoma with limited/no outcome data.  However, still worthwile to explore the data and see if these signatures we've observed in other cancer types are present in HCC.  Mengyuan Kan (PostDoc, Himes lab) has sent me a RNA-Seq pipeline.  Planning this week to download the data from NCI GDC Data Portal and look at RNA-Seq pipeline options from Mengyuan vs Minn lab
+
+
+### Visualization, Machine Learning and Model Evaluation
+
+2. There is a simulated dataset [here](https://raw.githubusercontent.com/HimesGroup/BMIN503/master/DataFiles/assignment4_data.txt) of 100 measures taken for 1000 subjects. Read in the data file, and using some of the R functions discussed in class (show your code below!), answer the following questions by inserting code below each bullet to provide the answer directly. *(9 points)*
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+ classdata <- read.delim(url("https://raw.githubusercontent.com/HimesGroup/BMIN503/master/DataFiles/assignment4_data.txt"), header = TRUE)
+##str(classdata)
+```
+
+    + How many cases/controls are in the dataset?
+```{r}
+count(classdata,status)
+```
+    
+    
+    + Use bivariate statistical tests to find out which variables are individually associated with _status_ at a nominally significant level. That is, name and list the variables with p < 0.05, along with their p-values. The variable names should be labelled according to their order in the data (e.g., the first variable can be called "v1"). Among the signficant ones, which would you prioritize for further study? Hint: use a _for loop_ to get the 100 p-values. 
+    
+```{r}
+c0 <- classdata[1,2:101]
+  for(i in names(classdata)[2:101]){
+    ###print(i)
+fit.classdata2 <- glm(status~get(i), data=classdata, family = binomial(logit))
+c0[,i] <- coef(summary(fit.classdata2))[,4][2]
+  }
+
+c0 %>%
+ gather(key="variable", "p") %>%
+  filter(p < 0.05)
+
+```
+
+Looking at the graphs below, would prioritize exploring V1, V23, V50 and V100 for further study given that they have the most profound differences between case and control    
+
+    + Create a plot to visualize how the values of the individual variable with lowest p-value differ between cases and controls.
+    
+```{r}
+head(classdata)
+tmp <- classdata %>%
+#  select(status, v1) %>%
+  gather(key="variable", value="value", -status)
+head(tmp)
+table(tmp$variable)
+c5 <- c0 %>%
+ gather(key="variable", "p")
+tmp2 <- inner_join(tmp,c5, by="variable")
+tmp3 <- tmp2 %>% 
+  filter(p < 0.05)
+
+ggplot(data = tmp3, 
+       aes(x=status, y=value)) + 
+     geom_boxplot() +
+  facet_wrap(~variable)
+
+```
+  
+  V1, V23, V50, and V100 are strong positive predictors of case status in the data.  
+
+3. Use hierarchical clustering with the independent variables (i.e. exclude the _status_ variable) to find out whether you can arrive at the _status_ label from the independent variables. Since you know there should be 2 categories, use this information in your analysis. Insert code below each bullet to provide answers. *(9 points)*
+    + Create a dendrogram using `hclust` and use the original _status_ variable to color the leaves.
+```{r}
+library(ggdendro)
+library(ggplot2)
+classdata.hclust <- hclust(dist(classdata[ , 2:101]), method = "average") 
+classdata.dend <- dendro_data(as.dendrogram(classdata.mod.hclust))
+labels <- label(classdata.mod.dend)
+labels$Status <- classdata$status[as.numeric(levels(labels$label))]
+ggplot(segment(classdata.mod.dend)) +
+    geom_segment(aes(x = x, y = y, xend = xend, yend = yend)) +
+    geom_text(data = labels, aes(label = label, x = x, y = 0, color = Status), size = 4)
+```
+    
+    
+    + Use a table to show how many cases/controls are properly classified.
+    
+```{r}
+sub_grp <- cutree(classdata.hclust,k=2)
+table(sub_grp)
+classdata %>%
+  mutate(cluster = sub_grp) %>%
+  select(status, cluster) %>%
+  head(6)
+
+```
+
+ 
+
+4. Compare the predictive accuracy of 1) logistic regression and 2) random forest multivariate models of _status_ as outcome while using all other variables simultaneously as predictors. Hint: you can modify the random forest and cross validation code from the practicum files used in class. Insert code below each bullet to provide answers. *(12 points)*
+    + Create a logistic regression model. How many variables are significant at p < 0.05? Store the predicted values of the training data into a variable called glm.pred.
+```{r}
+glmfail.classdata <- glm(status ~., data=classdata, family= binomial)
+coef(summary(glmfail.classdata))[,4]
+
+glm.classdata <- glm(status ~ v1+v23+v50+v100, data=classdata, family = binomial(logit)) 
+
+glm.classdata
+coef(summary(glm.classdata))
+glm.pred <- predict(glm.classdata, classdata, type = "response")
+
+
+
+```
+GLM does not seem to be able to handle the 100 variables well and gives warning that algorithm doesn't converage and fitted prob 0 or 1.  The resulting model gives nonsensical intercept with nonsignificant pvalues.  Feeding GLM the significant variables from random forrest does converge a nice model with significant predictors.  
+    
+    + Create a random forest model. What are the most important predictors according to gini importance scores (i.e. MeanDecreaseGini)? Store the predicted values of the training data into a variable called rf.pred.
+
+```{r}
+library(randomForest)
+classdata.rf <- randomForest(status ~ ., data = classdata, ntree = 100, importance = TRUE)
+classdata.rf
+classdata.rf$importance
+
+rf.pred <- predict(classdata.rf, classdata, type = "prob")
+head(rf.pred)
+
+```
+  V1, V23, V50, and V100 are the most important predictors based on gini.  
+    
+    + Obtain 10-fold cross validation classification vectors for each model. Obtain AUC values and make an ROC plot that shows ROC curves corresponding to predictive accuracy using the training data as well as the 10-fold cross-validations. Note that there will be four ROC curves in your plot. What model was better at predicting _status_? Comment on possible model overfitting.
+    
+```{r}
+#K-Fold Cross Validation GLM Train/Test
+N = nrow(classdata)
+K = 10
+set.seed(1234)
+s = sample(1:K, size = N, replace = T)
+pred.outputs.glm <- vector(mode = "numeric", length = N)
+obs.outputs <- vector(mode = "numeric", length = N)
+offset <- 0
+for(i in 1:K){
+	train <- filter(classdata, s != i)
+	test <- filter(classdata, s == i)
+  obs.outputs[1:length(s[s == i]) + offset] <- test$status
+    
+  #GLM train/test
+	glm <- glm(status ~ ., data = train, family = binomial(logit))
+  glm.pred.curr <- predict(glm, test, type = "response")
+  pred.outputs.glm[1:length(s[s == i]) + offset] <- glm.pred.curr
+
+	offset <- offset + length(s[s == i])
+}
+
+
+#K-Fold Cross Validation RF Train/Test
+N = nrow(classdata)
+K = 10
+set.seed(1234)
+s = sample(1:K, size = N, replace = T)
+pred.outputs.rf <- vector(mode = "numeric", length = N)
+obs.outputs <- vector(mode = "numeric", length = N)
+offset <- 0
+for(i in 1:K){
+	train <- filter(classdata, s != i)
+	test <- filter(classdata, s == i)
+	obs.outputs[1:length(s[s == i]) + offset] <- test$status
+
+	#RF train/test
+	rf <- randomForest(status ~ ., data = train, ntree = 100)
+	rf.pred.curr <- predict(rf, newdata = test, type = "prob") 
+	pred.outputs.rf[1:length(s[s == i]) + offset] <- rf.pred.curr[ , 2]
+	
+	offset <- offset + length(s[s == i])
+}
+
+library(pROC)
+###GLM
+roc(classdata$status, glm.pred, ci = TRUE)
+roc(obs.outputs, pred.outputs.glm, ci = TRUE)
+plot.roc(classdata$status, glm.pred, ci = TRUE)
+plot.roc(obs.outputs, pred.outputs.glm, col = "red", add = TRUE)
+legend("bottomright", legend = c("GLM Training", "GLM Cross-Validation"), col = c("black", "red"), lwd = 2)
+
+###RF
+roc(classdata$status, rf.pred[,1], ci = TRUE)
+roc(obs.outputs, pred.outputs.rf, ci = TRUE)
+plot.roc(classdata$status, rf.pred[,1])
+plot.roc(obs.outputs, pred.outputs.rf, ci = TRUE, col = "darkgreen", add = TRUE)
+legend("bottomright", legend = c("RF Training", "RF Cross-Validation"), col = c("black", "darkgreen"), lwd = 1)
+
+
+### All one graph
+plot.roc(classdata$status, glm.pred, ci = TRUE)
+plot.roc(obs.outputs, pred.outputs.glm, col = "red", add = TRUE)
+plot.roc(classdata$status, rf.pred[,1], col = "gray", add = TRUE)
+plot.roc(obs.outputs, pred.outputs.rf, ci = TRUE, col = "darkgreen", add = TRUE)
+legend("bottomright", legend = c("GLM Training", "GLM Cross-Validation", "RF Training", "RF Cross-Validation"), col = c("black", "red", "gray", "darkgreen"), lwd = 1)
+```
+    
+My modified GLM model (fed only predictive variables) has a higher AUC than random forrest.  My RF training data has perfect accuracy which is not a realistic result.  This could suggest overfitting but may also be an error in my code.
+
+
+    + How do the AUCs for the random forest compare to the internal out-of-bag error rate estimate reported by the randomForest function? Explain how the two measures were obtained. Note that this is a concept question based on previous outputs and no additional code is needed.
+
+The AUC is 0.9425 while the OOB error rate for the RF is 18.1%.  OOB error rate is generated by bootstrapping so is only taking a small fraction of the data and likely overestimates the error of the model. 
+
+5. Rather than using all variables, create logistic regression and random forest predictive models using the "best" variables according to each method (i.e. the top-ranked variables according to standard metrics for each test). Insert code below each bullet to provide answers. *(9 points)* 
+    + Compare the top-ranked variables according to 1) p-values from logistic regression tests provided in question 2 and 2) by gini score for random forest from question 4. Are the top variables consistent?
+I can't get multivariate GLM to converge, however looking at the significant variables from univariate logistic regression vs random forrest models, the same variables are top ranked (V1, V23, V100, and V50)
+    
+    + Create logistic regression and random forest models using the top variables. For each model, check the predictive accuracy using the training data as well as via 10-fold cross-validation. Report the corresponding AUC and create ROC plots as you did in question 4. How does the predictive accuracy of the models compare to those using the entire dataset obtained in question 4? Explain any differences in a few sentences.
+    
+```{r}
+###Build the models
+classdata.sub <- classdata %>%
+  select(status,v1,v23,v50,v100)
+
+glm.classdata.sub <- glm(status ~., data=classdata.sub, family = binomial(logit)) 
+coef(summary(glm.classdata.sub))[,4]
+glm.pred.sub <- predict(glm.classdata.sub, classdata, type = "response")
+
+
+classdata.sub.rf <- randomForest(status ~ ., data = classdata.sub, ntree = 100, importance = TRUE)
+classdata.sub.rf
+classdata.sub.rf$importance
+
+rf.pred.sub <- predict(classdata.rf, classdata, type = "prob")
+head(rf.pred.sub)
+
+
+```
+```{r}
+#K-Fold Cross Validation GLM Train/Test
+N = nrow(classdata.sub)
+K = 10
+set.seed(1234)
+s = sample(1:K, size = N, replace = T)
+pred.outputs.glm.sub <- vector(mode = "numeric", length = N)
+obs.outputs.sub <- vector(mode = "numeric", length = N)
+offset <- 0
+for(i in 1:K){
+	train <- filter(classdata.sub, s != i)
+	test <- filter(classdata.sub, s == i)
+  obs.outputs.sub[1:length(s[s == i]) + offset] <- test$status
+    
+  #GLM train/test
+	glm.sub <- glm(status ~ ., data = train, family = binomial(logit))
+  glm.pred.curr.sub <- predict(glm.sub, test, type = "response")
+  pred.outputs.glm.sub[1:length(s[s == i]) + offset] <- glm.pred.curr.sub
+
+	offset <- offset + length(s[s == i])
+}
+
+
+#K-Fold Cross Validation RF Train/Test
+N = nrow(classdata.sub)
+K = 10
+set.seed(1234)
+s = sample(1:K, size = N, replace = T)
+pred.outputs.rf.sub <- vector(mode = "numeric", length = N)
+obs.outputs.sub <- vector(mode = "numeric", length = N)
+offset <- 0
+for(i in 1:K){
+	train.sub <- filter(classdata.sub, s != i)
+	test.sub <- filter(classdata.sub, s == i)
+	obs.outputs.sub[1:length(s[s == i]) + offset] <- test.sub$status
+
+	#RF train/test
+	rf.sub <- randomForest(status ~ ., data = train.sub, ntree = 100)
+	rf.pred.curr.sub <- predict(rf.sub, newdata = test.sub, type = "prob") 
+	pred.outputs.rf.sub[1:length(s[s == i]) + offset] <- rf.pred.curr.sub[ , 2]
+	
+	offset <- offset + length(s[s == i])
+}
+
+```
+
+```{r}
+roc(classdata.sub$status, glm.pred.sub, ci = TRUE)
+roc(obs.outputs.sub, pred.outputs.glm.sub, ci = TRUE)
+roc(classdata.sub$status, rf.pred.sub[,2], ci= TRUE)
+roc(obs.outputs.sub, pred.outputs.rf.sub, ci = TRUE)
+plot.roc(classdata.sub$status, glm.pred.sub, ci = TRUE)
+plot.roc(obs.outputs.sub, pred.outputs.glm.sub, col = "red", add = TRUE)
+plot.roc(classdata.sub$status, rf.pred.sub[,1], col = "gray", add = TRUE)
+plot.roc(obs.outputs.sub, pred.outputs.rf.sub, ci = TRUE, col = "darkgreen", add = TRUE)
+legend("bottomright", legend = c("GLM Training", "GLM Cross-Validation", "RF Training", "RF Cross-Validation"), col = c("black", "red", "gray", "darkgreen"), lwd = 1)
+
+```
+
+AUC has slightly improved with using only the predictive variable (except still getting unexplained AUC 1 for RF training data set).  Limiting the data set improves predictive accuracy by not forcing the models to adjust for 96 variables that are not predictive.
+    
+    + What models would be preferable in most situations, those you created in question 4 or 5?
+Models created in question 5 with only relevant variables are preferable.  Easier to compute less complicated model.  Having fewer variables should add less variance to prediction.
